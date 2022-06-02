@@ -16,13 +16,30 @@ def DEVSQ(list):
     minmean = np.array(list) - np.average(list)
     return np.sum(minmean ** 2)
 
+def misoformula(list, index):
+    count = len(list) / 3
+    arraylen = len(list) - count
+    static = np.array(list[0:int(arraylen-1)]) - np.average(list)
+    dynamic = np.array(list[index:int(arraylen+index-1)]) - np.average(list)
+    sumproduct = np.sum(static * dynamic)
+    return sumproduct / DEVSQ(list)
 
 def autocorr(x, method):
     if method == "numpy":
         result = np.correlate(x, x, mode='same')
         return result
     elif method == "miso":
-        pass
+        resultplus = []
+        for index, val in enumerate(x):
+            count = len(x) / 3
+            if index < count:
+                resultplus.append(misoformula(x, index))
+
+        resultmin = np.flip(resultplus[1:])
+        result = np.concatenate((resultmin,resultplus), axis=None)
+        return result
+
+
 
 
 def corr_pearson(x, y):
@@ -250,7 +267,7 @@ def cycledegrees(input, pxpermicron, filename):
         #
         # print(my_rho)
 
-        autocorlist = autocorr(newmeanarray, "numpy")
+        autocorlist = autocorr(newmeanarray, "miso")
 
         cormin = (np.diff(np.sign(np.diff(autocorlist))) > 0).nonzero()[0] + 1  # local min
         cormax = (np.diff(np.sign(np.diff(autocorlist))) < 0).nonzero()[0] + 1  # local max
@@ -307,8 +324,14 @@ def cycledegrees(input, pxpermicron, filename):
 
     fitlist = np.array(fitlist, dtype="float32")
 
-    maxdeg = fitlist[np.nanargmax(fitlist[:, 1]), 0]
-    repeatatmaxdeg = fitlist[np.nanargmax(fitlist[:, 1]), 2]
+    try:
+        maxdeg = fitlist[np.nanargmax(fitlist[:, 1]), 0]
+        repeatatmaxdeg = fitlist[np.nanargmax(fitlist[:, 1]), 2]
+
+    except ValueError:
+        maxdeg = 0
+        repeatatmaxdeg = 0
+
 
     print(maxdeg, repeatatmaxdeg)
 
@@ -351,20 +374,26 @@ if __name__ == '__main__':
 
     ### USER INPUT ###
 
-    print("Make sure you are running this script in the source directory and all .tif files are located in the input folder")
+    # print("Make sure you are running this script in the source directory and all .tif files are located in the input folder")
+    #
+    # pxpermicron = input("Enter pixel per micron value of image:     ")
+    #
+    # gridsplitmode = input("Splitmode: type either 'auto' or 'manual':       ")
 
-    pxpermicron = input("Enter pixel per micron value of image:     ")
+    # if gridsplitmode not in ['auto', 'manual']:
+    #     exit('Splitmode should be auto or manual')
+    # else:
+    #     if gridsplitmode == 'auto':
+    #         gridsplitval = input("Enter the desired grid size as 'height, width' in pixels:     ")
+    #     else:
+    #         gridsplitval = input(
+    #             "Enter the desired split as 'number of vertical slices, number of horizontal slices':     ")
 
-    gridsplitmode = input("Splitmode: type either 'auto' or 'manual':       ")
+    pxpermicron = 50
 
-    if gridsplitmode in ['auto', 'manual']:
-        if gridsplitmode == 'auto':
-            gridsplitval = input("Enter the desired grid size as 'height, width' in pixels:     ")
-        else:
-            gridsplitval = input(
-                "Enter the desired split as 'number of vertical slices, number of horizontal slices':     ")
-    else:
-        exit('Splitmode should be auto or manual')
+    gridsplitmode = "auto"
+
+    gridsplitval = "100,100"
 
     ### Iterate over all file in input folder ###
 
