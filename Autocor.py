@@ -7,24 +7,30 @@ import matplotlib.pyplot as plt
 from math import sqrt, isnan
 from multiprocessing import Pool
 from functools import partial
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 
 ### USER INPUT ###
 
 
-def DEVSQ(list):
-    minmean = np.array(list) - np.average(list)
-    return np.sum(minmean ** 2)
-
-def misoformula(list, index):
-    count = len(list) / 3
-    arraylen = len(list) - count
-    static = np.array(list[0:int(arraylen-1)]) - np.average(list)
-    dynamic = np.array(list[index:int(arraylen+index-1)]) - np.average(list)
-    sumproduct = np.sum(static * dynamic)
-    return sumproduct / DEVSQ(list)
-
 def autocorr(x, method):
+    def misoformula(list, index):
+
+        def DEVSQ(list):
+            minmean = np.array(list) - np.average(list)
+            return np.sum(minmean ** 2)
+
+        count = len(list) / 3
+        arraylen = len(list) - count
+        static = np.array(list[0:int(arraylen - 1)]) - np.average(list)
+        dynamic = np.array(list[index:int(arraylen + index - 1)]) - np.average(list)
+        sumproduct = np.sum(static * dynamic)
+        return sumproduct / DEVSQ(list)
+
     if method == "numpy":
         result = np.correlate(x, x, mode='same')
         return result
@@ -36,10 +42,53 @@ def autocorr(x, method):
                 resultplus.append(misoformula(x, index))
 
         resultmin = np.flip(resultplus[1:])
-        result = np.concatenate((resultmin,resultplus), axis=None)
+        result = np.concatenate((resultmin, resultplus), axis=None)
         return result
 
 
+def PrincipleComponents(df, mode, highlight):
+    features = ["deg", "periodicity", "repeat"]
+    x = df.loc[:, features].values
+    x = StandardScaler().fit_transform(x)
+
+    if mode == "2d":
+        pca = PCA(n_components=2)
+
+        principalComponents = pca.fit_transform(x)
+        principalDf = pd.DataFrame(data=principalComponents
+                                   , columns=['principal component 1', 'principal component 2'])
+
+        finalDf = pd.concat([principalDf.reset_index(), df.reset_index()], axis=1)
+        print(finalDf)
+
+        finalDf["periodicity"] = finalDf["periodicity"].astype(float)
+        finalDf["repeat"] = finalDf["repeat"].astype(float)
+
+        traceDf = finalDf[finalDf["repeat"].between(highlight[0], highlight[1])]
+
+        fig = px.scatter(finalDf, x="principal component 1", y='principal component 2',
+                         hover_data=["gridindex", "periodicity", "deg", "repeat"], color="periodicity")
+        fig.add_traces(
+            go.Scatter(x=traceDf["principal component 1"], y=traceDf['principal component 2'], mode="markers",
+                       marker_symbol='star', marker_size=15, hoverinfo="none")
+        )
+
+    elif mode == "3d":
+
+        df["periodicity"] = df["periodicity"].astype(float)
+        df["repeat"] = df["repeat"].astype(float)
+
+        traceDf = df[df["repeat"].between(highlight[0], highlight[1])]
+
+        fig = px.scatter_3d(df, x="deg", y='repeat', z='periodicity',
+                            hover_data=["gridindex", "periodicity", "deg", "repeat"], color="periodicity")
+        fig.add_traces(
+            go.Scatter3d(x=traceDf["deg"], y=traceDf['repeat'],
+                         z=traceDf['periodicity'], mode="markers",
+                         marker_symbol='diamond', marker_size=15, hoverinfo="skip")
+        )
+
+    fig.show()
 
 
 def corr_pearson(x, y):
@@ -227,6 +276,7 @@ def cycledegrees(input, pxpermicron, filename):
     index = input[0]
     fitlist = []
     tempdict = {}
+    dfPC = pd.DataFrame(columns=["deg", "periodicity", "repeat", "gridindex"])
     for deg in tqdm(range(-90, 90)):
 
         tempdict[deg] = {}
@@ -256,17 +306,6 @@ def cycledegrees(input, pxpermicron, filename):
 
         newmeanarray = nanarraycleaner(newmeanarray)
 
-        # SIN AND PEARSON
-        # smodel = Model(sinefunction)
-        # xarray = list(range(np.shape(newmeanarray)[0]))
-        #
-        #
-        # result = smodel.fit(newmeanarray, x = xarray, freq=10, phase = 0)
-        #
-        # my_rho = corr_pearson(newmeanarray, result.best_fit)
-        #
-        # print(my_rho)
-
         autocorlist = autocorr(newmeanarray, "miso")
 
         cormin = (np.diff(np.sign(np.diff(autocorlist))) > 0).nonzero()[0] + 1  # local min
@@ -295,32 +334,12 @@ def cycledegrees(input, pxpermicron, filename):
 
         }
 
-        # # #-- Plot...
-        # fig, axes = plt.subplots(nrows=3)
-        # axes[0].imshow(grid)
-        # axes[0].plot([x0, x1], [y0, y1], 'ro-')
-        # axes[0].axis('image')
-        #
-        # axes[1].plot(newmeanarray)
-        # axes[2].plot(autocorlist)
-        # axes[2].plot(cormin, autocorlist[cormin], "o", label="min", color='r')
-        # axes[2].plot(cormax, autocorlist[cormax], "o", label="max", color='b')
-        # axes[2].text(0.05, 0.95, periodicity, transform=axes[2].transAxes, fontsize=14,
-        #     verticalalignment='top')
-        #
-        #
-        # # axes[1].plot(result.best_fit, label='fit')
-        # #
-        # # axes[2].text(0,0, result.fit_report(), fontsize=5)
-        # #
-        # # axes[2].text(0, 0, 'pearson' + str(my_rho), fontsize=15)
-        #
-        # try:
-        #     os.mkdir("img/"+ str(index))
-        # except FileExistsError:
-        #     pass
-        #
-        # plt.savefig("img/"+ str(index)+'/'+str(deg) +".png")
+        if np.isnan(periodicity) or np.isnan(repeat):
+            pass
+        else:
+            tempdf = pd.DataFrame({"deg": [deg], "periodicity": [periodicity[0]], "repeat": [repeat[0]],
+                                   "gridindex": [filename + " / " + str(index)]})
+            dfPC = pd.concat([dfPC, tempdf])
 
     fitlist = np.array(fitlist, dtype="float32")
 
@@ -331,9 +350,6 @@ def cycledegrees(input, pxpermicron, filename):
     except ValueError:
         maxdeg = 0
         repeatatmaxdeg = 0
-
-
-    print(maxdeg, repeatatmaxdeg)
 
     fig, axes = plt.subplots(nrows=3)
     axes[0].imshow(grid)
@@ -362,7 +378,7 @@ def cycledegrees(input, pxpermicron, filename):
 
     plt.savefig("output/" + filename + "/" + str(index) + ".jpg")
 
-    return np.nanmax(fitlist[:, 1]), np.count_nonzero(np.isnan(grid)), repeatatmaxdeg
+    return np.nanmax(fitlist[:, 1]), np.count_nonzero(np.isnan(grid)), repeatatmaxdeg, dfPC
 
 
 # -- Generate some data...
@@ -417,6 +433,8 @@ if __name__ == '__main__':
         callproceed = False
         thresh = np.median(blurredz)
 
+        ### MANUAL THRESHOLDING ###
+
         while not callproceed:
             blurredz = copy.copy(blurredzoriginal)
             thresholdH = blurredz[:, :] > thresh
@@ -460,7 +478,7 @@ if __name__ == '__main__':
             indexgrids.append([index, grid])
 
         with Pool(4) as pool:
-            output = pool.map(partial(cycledegrees, pxpermicron=int(pxpermicron), filename = filename), indexgrids)
+            output = pool.map(partial(cycledegrees, pxpermicron=int(pxpermicron), filename=filename), indexgrids)
             output = np.array(output)
             weighted_avg = np.average(output[:, 0], weights=output[:, 1])
             intervallist = output[:, 2]
@@ -469,12 +487,7 @@ if __name__ == '__main__':
             print(intervallist)
             print('most likely periodicity interval', medianrepeat)
 
-        # output = cycledegrees(indexgrids[5])
-        #
-        # output = np.array(output)
-        # weighted_avg = np.average(output[:, 0], weights=output[:, 1])
-        # intervallist = output[:, 2]
-        # medianrepeat = np.average(output[:, 2], weights=output[:, 1])
-        # print('FINAL RESULT', weighted_avg)
-        # print(intervallist)
-        # print('most likely periodicity interval', medianrepeat)
+            df = pd.concat(output[:, 3])
+            PrincipleComponents(df, "3d", (0.17, 0.21))
+
+
