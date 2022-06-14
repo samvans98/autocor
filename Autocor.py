@@ -1,4 +1,4 @@
-import cv2
+
 import os
 import copy
 from tqdm import tqdm
@@ -12,9 +12,123 @@ import plotly.express as px
 import plotly.graph_objects as go
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+import cv2
+
+
+def readfile(inputarray):
+    ### Set to greyscale if needed
+    try:
+        inputarray = cv2.cvtColor(inputarray, cv2.COLOR_RGB2GRAY)
+    except Exception:
+        pass
+
+    return inputarray
+
+
+class AutocorrelationTool:
+    def __init__(self, inputimg):
+
+        self.analysismode = None                    # choice from full or restricted
+        self.restrictzone = None                    # should be [-90,90] when analysis mode = full
+
+        self.inputimg = inputimg                    # select napari layer
+        self.pxpermicron = None                     # import from napari metadata???
+        self.gridsplitmode = None                   # choice from none, auto and manual
+        self.gridsplitvalue = None                  # When gridsplitmode = auto input size of desired grid eg [100,100]
+                                                    # When gridsplitmode = manual input number of grids eg [2,3]
+        self.thresholdvalue = None
+        self.autocorrelationmode = None             # choice from numpy or Miso
+
+
+
+    def readfile(self):
+        ### Set to greyscale if needed
+        try:
+            self.inputarray = cv2.cvtColor(self.inputimg, cv2.COLOR_RGB2GRAY)
+        except Exception:
+            pass
+
+        self.inputarray = np.array(self.inputarray, dtype='float32')
+
+
+    def medianthreshold(self):
+        if self.inputarray == None:
+            inputarray = self.readfile()
+
+        temparray = np.array(self.inputarray, dtype='uint8')
+
+        self.thresholdvalue = np.median(temparray)
+
+    def preprocess(self):
+        self.readfile()
+
+
+
+
+
+
+
+
+
+
 
 
 ### USER INPUT ###
+
+def preprocess(inputarray):
+
+    ### Set to greyscale if needed
+    try:
+        inputarray = cv2.cvtColor(inputarray, cv2.COLOR_RGB2GRAY)
+    except Exception:
+        pass
+
+    ### Set type, blur and threshold
+
+    inputarray = np.array(inputarray, dtype='float32')
+
+    blurredz = np.array(inputarray, dtype='uint8')
+    blurredz = cv2.GaussianBlur(blurredz, (5, 5), 5)
+
+    blurredzoriginal = copy.deepcopy(blurredz)
+
+    callproceed = False
+    thresh = np.median(blurredz)
+
+    ### MANUAL THRESHOLDING ###
+
+    while not callproceed:
+        blurredz = copy.copy(blurredzoriginal)
+        thresholdH = blurredz[:, :] > thresh
+        thresholdL = blurredz[:, :] <= thresh
+        blurredz[thresholdH] = 1
+        blurredz[thresholdL] = 0
+
+        edged = cv2.Canny(blurredz, 0, 1)
+
+        contours, hierarchy = cv2.findContours(blurredz, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        contour_sizes = [(cv2.contourArea(contour), contour) for contour in contours]
+
+        biggest_contour = max(contour_sizes, key=lambda x: x[0])[1]
+
+        mask = np.zeros(blurredz.shape, np.uint8)
+        cv2.drawContours(mask, [biggest_contour], -1, 255, -1)
+
+        cv2.imshow("img", mask)
+        cv2.waitKey()
+
+        print("the current treshold is ", thresh)
+        ready = input("Proceed with this threshold? y/n     ")
+
+        if ready == "n":
+            thresh = float(input("Enter new threshold      "))
+        else:
+            callproceed = True
+
+    ### overlay original image with mask
+    inputarray[mask == 0] = np.nan
+
+    return inputarray
 
 
 def autocorr(x, method):
@@ -418,52 +532,7 @@ if __name__ == '__main__':
 
         z = plt.imread(f)
 
-        try:
-            z = cv2.cvtColor(z, cv2.COLOR_RGB2GRAY)
-        except Exception:
-            pass
-
-        z = np.array(z, dtype='float32')
-
-        blurredz = np.array(z, dtype='uint8')
-        blurredz = cv2.GaussianBlur(blurredz, (5, 5), 5)
-
-        blurredzoriginal = copy.deepcopy(blurredz)
-
-        callproceed = False
-        thresh = np.median(blurredz)
-
-        ### MANUAL THRESHOLDING ###
-
-        while not callproceed:
-            blurredz = copy.copy(blurredzoriginal)
-            thresholdH = blurredz[:, :] > thresh
-            thresholdL = blurredz[:, :] <= thresh
-            blurredz[thresholdH] = 1
-            blurredz[thresholdL] = 0
-
-            edged = cv2.Canny(blurredz, 0, 1)
-
-            contours, hierarchy = cv2.findContours(blurredz, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-            contour_sizes = [(cv2.contourArea(contour), contour) for contour in contours]
-
-            biggest_contour = max(contour_sizes, key=lambda x: x[0])[1]
-
-            mask = np.zeros(blurredz.shape, np.uint8)
-            cv2.drawContours(mask, [biggest_contour], -1, 255, -1)
-
-            cv2.imshow(filename, mask)
-            cv2.waitKey()
-
-            print("the current treshold is ", thresh)
-            ready = input("Proceed with this threshold? y/n     ")
-
-            if ready == "n":
-                thresh = float(input("Enter new threshold      "))
-            else:
-                callproceed = True
-
-        z[mask == 0] = np.nan
+        z = preprocess(z)
 
         cleangrids = []
 
@@ -488,6 +557,6 @@ if __name__ == '__main__':
             print('most likely periodicity interval', medianrepeat)
 
             df = pd.concat(output[:, 3])
-            PrincipleComponents(df, "3d", (0.17, 0.21))
+            PrincipleComponents(df, "2d", (0.17, 0.21))
 
 
